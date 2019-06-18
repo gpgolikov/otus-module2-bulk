@@ -23,7 +23,7 @@ public:
     void execute(const BlankLine& command) override;
 
 private:
-    bool open_file();
+    void open_file();
 
 private:
     ExecuterPtr next_;

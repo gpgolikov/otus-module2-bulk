@@ -9,7 +9,8 @@ void ExecutionLogger::start() {
 
     const auto now = chrono::system_clock::now();
     filename_ = "bulk"s +
-        to_string(chrono::duration_cast<chrono::nanoseconds>(now.time_since_epoch()).count());
+        to_string(chrono::duration_cast<chrono::nanoseconds>(now.time_since_epoch()).count()) +
+        ".log"s;
 
     next_->start();
 }
@@ -21,24 +22,22 @@ void ExecutionLogger::stop() {
     next_->stop();
 }
 
-inline bool ExecutionLogger::open_file() {
-    if (!output_.is_open()) {
+inline void ExecutionLogger::open_file() {
+    if (!output_.is_open())
         output_.open(filename_);
-        output_ << "bulk:";
-        return true;
-    }
-    return false;
 }
 
 void ExecutionLogger::execute(const AnyCommand& command) {
-    if (!open_file())
-        output_ << ',';
-    output_ << " " << command.command();
+    open_file(); // maybe this need states to increase performance
+    output_ << "AnyCommand received with command name: " 
+            << command.command() << std::endl;
 
     next_->execute(command);
 }
 
 void ExecutionLogger::execute(const BlankLine& command) {
+    output_ << "BlankLine command" << std::endl;
+
     next_->execute(command);    
 }
 
