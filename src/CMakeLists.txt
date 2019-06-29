@@ -1,8 +1,7 @@
 list(APPEND ${PROJECT_NAME}_SOURCES
-    command.cpp
-    command_factory.cpp
-    executer.cpp
-    execution_logger.cpp
+    statement.cpp
+    statement_factory.cpp
+    logger.cpp
     reader.cpp
     interpreter.cpp
     main.cpp)

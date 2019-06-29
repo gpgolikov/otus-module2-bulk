@@ -1,16 +1,15 @@
 #pragma once
 
 #include <memory>
+#include <vector>
 
 namespace griha {
 
-struct Command;
-using CommandPtr = std::shared_ptr<Command>;
+struct Statement;
+using StatementPtr = std::shared_ptr<Statement>;
+using StatementContainer = std::vector<StatementPtr>;
 
-struct CommandFactory;
-using CommandFactoryPtr = std::shared_ptr<CommandFactory>;
-
-struct Executer;
-using ExecuterPtr = std::shared_ptr<Executer>;
+struct ReaderSubscriber;
+using ReaderSubscriberPtr = std::shared_ptr<ReaderSubscriber>;
 
 } // namespace griha

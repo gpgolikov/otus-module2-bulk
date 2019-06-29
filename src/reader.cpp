@@ -1,11 +1,11 @@
 #include "reader.h"
 
-#include <cassert>
 #include <algorithm>
 #include <string>
 #include <string_view>
 
-#include "command_factory.h"
+#include "reader_subscriber.h"
+#include "statement_factory.h"
 
 namespace griha {
 
@@ -36,20 +36,21 @@ using ReaderStatePtr = std::shared_ptr<ReaderState>;
 
 struct ReaderImpl {
 
-    inline ReaderImpl(CommandFactoryPtr cf, size_t bsize)
+    inline ReaderImpl(size_t bsize)
         : state(nullptr)
-        , block_size(bsize)
-        , command_factory(cf) {}
+        , block_size(bsize) {}
 
     ReaderStatePtr state;
     const size_t block_size;
 
     std::vector<ReaderSubscriberPtr> subscribers;
 
-    CommandFactoryPtr command_factory;
-    CommandContainer commands;
+    StatementFactory statement_factory;
 
-    void add_command(std::string line);
+    template <typename State> State& change_state(); 
+
+    bool process(std::istream& is);
+    void process(std::string line);
 
     void notify_block_begin();
     void notify_block_end();
@@ -59,39 +60,65 @@ struct InitialState : ReaderState {
     inline explicit InitialState(ReaderImpl& r_impl)
         : reader_impl(r_impl) {}
 
+    void test_and_notify_block_end();
+
     bool process(std::istream& line) override;
 
     ReaderImpl& reader_impl;
+    size_t count {};
 };
 
 struct BlockState : ReaderState {
-    inline BlockState(ReaderImpl& r_impl, ReaderStatePtr l_state) 
-        : reader_impl(r_impl)
-        , last_state(l_state) {}
+    inline BlockState(ReaderImpl& r_impl) 
+        : reader_impl(r_impl) {}
 
     bool process(std::istream& line) override;
 
     ReaderImpl& reader_impl;
-    ReaderStatePtr last_state;
+    size_t level {};
 };
 
-void ReaderImpl::add_command(std::string line) {
-    commands.push_back(command_factory->create_command(std::move(line)));
-    if (commands.size() == 1)
-        notify_block_begin();
+struct ErrorState : ReaderState {
+    inline ErrorState(ReaderImpl& r_impl)
+        : reader_impl(r_impl) {}
+
+    bool process(std::istream& line) override;
+
+    ReaderImpl& reader_impl;
+    std::string error;
+};
+
+template <typename State>
+State& ReaderImpl::change_state() {
+    // for further optimization it looks pretty to create states pool
+    state = std::make_shared<State>(*this);
+    return dynamic_cast<State&>(*state);
+} 
+
+bool ReaderImpl::process(std::istream& is) {
+    auto save_state_ptr = state->shared_from_this(); // protect against unexpected deletion
+    return state->process(is);
+}
+
+void ReaderImpl::process(std::string line) {
+    StatementPtr stm = statement_factory.create(std::move(line));
+    for (auto& subscriber : subscribers)
+        subscriber->on_new_statement(stm);
 }
 
 void ReaderImpl::notify_block_begin() {
-    assert(!commands.empty());
     for (auto& subscriber : subscribers)
-        subscriber->on_block_begin(commands.front());
+        subscriber->on_block_begin();
 }
 
 void ReaderImpl::notify_block_end() {
-    assert(!commands.empty());
     for (auto& subscriber : subscribers)
-        subscriber->on_block_end(commands);
-    commands.clear();
+        subscriber->on_block_end();
+}
+
+void InitialState::test_and_notify_block_end() {
+    if (count != 0)
+        reader_impl.notify_block_end(); 
 }
 
 bool InitialState::process(std::istream& input) {
@@ -99,24 +126,26 @@ bool InitialState::process(std::istream& input) {
 
     string line;
     if (!getline(input, line)) {
-        if (!reader_impl.commands.empty())
-            // in initial state the end of the stream triggers end of block
-            reader_impl.notify_block_end(); 
-        
+        // in initial state the end of the stream triggers end of block
+        test_and_notify_block_end();
         return false; // end of file or another error
     }
     
-    auto this_ptr = shared_from_this(); // protect against unexpected deletion
-    if (is_block_begin(line)) {
+    if (is_block_end(line)) {
+        reader_impl.change_state<ErrorState>().error = "unexpected end of block"s;
+    } else if (is_block_begin(line)) {
         // in initial state start of explicit block triggers end of block
-        if (!reader_impl.commands.empty())
-            reader_impl.notify_block_end(); 
-        reader_impl.state = std::make_shared<BlockState>(reader_impl, nullptr);
+        test_and_notify_block_end();
+        reader_impl.change_state<BlockState>();
     } else {
-        reader_impl.add_command(std::move(line));
-        // fixed block size has been reached
-        if (reader_impl.commands.size() == reader_impl.block_size)
-           reader_impl.notify_block_end();
+        if (count == 0)
+            reader_impl.notify_block_begin();
+        reader_impl.process(std::move(line));
+        if (++count == reader_impl.block_size) {
+            // fixed block size has been reached
+            reader_impl.notify_block_end();
+            count = 0;
+        }
     }
 
     return true;
@@ -130,29 +159,45 @@ bool BlockState::process(std::istream& input) {
         return false; // end of file or another error
     }
 
-    auto this_ptr = shared_from_this(); // protect against unexpected deletion
     if (is_block_begin(line)) {
         // nested explicit blocks are ignored but correction of syntax is required
-        reader_impl.state = std::make_shared<BlockState>(reader_impl, reader_impl.state);
+        ++level;
     } else if (is_block_end(line)) {
-        // restore last state
-        if (last_state == nullptr) {
+        switch (level) {
+        case 0:
             // explicit block has been ended
-            reader_impl.notify_block_end();
-            reader_impl.state = std::make_shared<InitialState>(reader_impl);
-        } else {
-            // nested explicit block has been ended
-            reader_impl.state = last_state;
+            // there are no commands in block - no notifications will be
+            reader_impl.change_state<InitialState>();
+            break;
+
+        default:
+            if (--level == 0) {
+                // explicit block has been ended
+                // block has statements - notify about end of block
+                reader_impl.notify_block_end();
+                reader_impl.change_state<InitialState>();
+            }
+            break;
         }
     } else {
-        reader_impl.add_command(std::move(line));
+        if (level == 0) {
+            // first command in block
+            ++level;
+            reader_impl.notify_block_begin();
+        }
+        reader_impl.process(std::move(line));
     }
 
     return true;
 }
 
-Reader::Reader(CommandFactoryPtr command_factory, size_t block_size)
-    : priv_(std::make_unique<ReaderImpl>(command_factory, block_size)) {}
+bool ErrorState::process([[maybe_unused]] std::istream& is) {
+    std::cerr << error << std::endl;
+    return false;
+}
+
+Reader::Reader(size_t block_size) 
+    : priv_(std::make_unique<ReaderImpl>(block_size)) {}
 
 Reader::~Reader() = default;
 Reader::Reader(Reader&&) = default;
@@ -162,13 +207,12 @@ void Reader::subscribe(ReaderSubscriberPtr subscriber) {
     auto& subscribers = priv_->subscribers;
     auto it = std::find(subscribers.begin(), subscribers.end(), subscriber);
     if (it == subscribers.end())
-        subscribers.push_back(subscriber);
+        subscribers.push_back(std::move(subscriber));
 }
 
 void Reader::run(std::istream& input) {
-    priv_->state = std::make_shared<InitialState>(*priv_);
-
-    while (priv_->state->process(input)) {
+    priv_->change_state<InitialState>();
+    while (priv_->process(input)) {
         // do nothing
     }
 }

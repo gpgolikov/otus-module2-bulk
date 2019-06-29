@@ -8,20 +8,9 @@
 
 namespace griha {
 
-using CommandContainer = std::vector<CommandPtr>;
-
-class Reader;
-struct ReaderSubscriber {
-    virtual ~ReaderSubscriber() {}
-    virtual void on_block_begin(CommandPtr command) = 0;
-    virtual void on_block_end(const CommandContainer& commands) = 0;
-};
-using ReaderSubscriberPtr = std::shared_ptr<ReaderSubscriber>;
-
 class Reader {
 public:
-    Reader(CommandFactoryPtr command_factory, size_t block_size);
-
+    Reader(size_t block_size);
     ~Reader();
 
     Reader(Reader&&);

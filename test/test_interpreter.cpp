@@ -5,9 +5,6 @@
 #include <sstream>
 #include <memory>
 
-#include <command.h>
-#include <command_factory.h>
-#include <executer.h>
 #include <interpreter.h>
 
 #include "utils.h"
@@ -20,11 +17,10 @@ using namespace Catch::Matchers;
 TEST_CASE("Interpreter", "[interpreter]") {
     ostringstream output;
     Interpreter::Context context = {
-        make_shared<StreamExecuter>(output),
-        make_shared<SimpleCommandFactory>(),
-        3};
-    
-    Interpreter interpreter(context);
+        Reader{ 3 },
+        Logger{},
+        output};
+    Interpreter interpreter(std::move(context));
 
     SECTION("Fixed blocks") {
         istringstream is;
@@ -173,11 +169,11 @@ TEST_CASE("Interpreter", "[interpreter]") {
 TEST_CASE("Interpreter_block_size_1", "[interpreter]") {
     ostringstream output;
     Interpreter::Context context = {
-        make_shared<StreamExecuter>(output),
-        make_shared<SimpleCommandFactory>(),
-        1};
+        Reader{ 1 },
+        Logger{},
+        output};
     
-    Interpreter interpreter(context);
+    Interpreter interpreter(std::move(context));
 
     SECTION("Fixed blocks") {
         istringstream is;

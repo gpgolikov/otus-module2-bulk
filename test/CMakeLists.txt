@@ -1,13 +1,12 @@
 project(${PROJECT_NAME}_tests)
 
 list(APPEND ${PROJECT_NAME}_SOURCES
-    ../src/command.cpp
-    ../src/command_factory.cpp
-    ../src/executer.cpp
+    ../src/statement.cpp
+    ../src/statement_factory.cpp
     ../src/reader.cpp
     ../src/interpreter.cpp
-    test_executers.cpp
-    test_command_factory.cpp
+    ../src/logger.cpp
+    test_statement.cpp
     test_reader.cpp
     test_interpreter.cpp
     main.cpp)

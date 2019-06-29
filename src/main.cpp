@@ -2,10 +2,7 @@
 #include <memory>
 #include <string>
 
-#include "command_factory.h"
 #include "interpreter.h"
-#include "executer.h"
-#include "execution_logger.h"
 
 using namespace std;
 using namespace griha;
@@ -19,14 +16,12 @@ int main(int argc, char* argv[]) {
     const size_t block_size = stoul(argv[1]);
 
     Interpreter::Context context = {
-        make_shared<ExecutionLogger>(
-            make_shared<StreamExecuter>(cout)
-        ),
-        make_shared<SimpleCommandFactory>(),
-        block_size
+        Reader{ block_size },
+        Logger{},
+        cout
     };
 
-    Interpreter interpreter(context);
+    Interpreter interpreter(std::move(context));
     interpreter.run(cin);
     return 0;
 }
